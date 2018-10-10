@@ -43,7 +43,11 @@ impl Editor {
         loop {
             self.refresh_screen()?;
             match os::target::read()? {
-                CTRL_Q => return Ok(()),
+                CTRL_Q => {
+                    erase_in_display!(all);
+                    cursor_position!();
+                    return Ok(());
+                }
                 _ => (),
             }
         }
