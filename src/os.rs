@@ -1,107 +1,87 @@
 pub mod unix {
     extern crate libc;
 
-    use std::error::Error;
-    use std::ffi::CStr;
-    use std::fmt;
+    use std::io;
     use std::mem;
 
-    #[derive(Debug)]
-    pub struct SysError(i32, String);
-
-    impl SysError {
-        fn last(s: &str) -> SysError {
-            unsafe {
-                let err_code = errno();
-                let err_string = libc::strerror(err_code);
-                SysError(
-                    err_code,
-                    s.to_string() + ": " + &CStr::from_ptr(err_string).to_string_lossy(),
-                )
-            }
-        }
-    }
-    impl fmt::Display for SysError {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{} (code: {})", self.1, self.0)
-        }
-    }
-
-    impl Error for SysError {}
-
-    fn errno() -> i32 {
-        unsafe { *libc::__errno_location() }
-    }
-
-    pub fn read() -> Result<Option<u8>, SysError> {
+    pub fn read() -> Result<Option<u8>, io::Error> {
         let mut c = unsafe { mem::uninitialized() };
         let res =
             unsafe { libc::read(libc::STDIN_FILENO, &mut c as *mut _ as *mut libc::c_void, 1) };
         match res {
             1 => Ok(Some(c)),
             0 => Ok(None),
-            -1 if errno() == libc::EAGAIN => Ok(None),
-            _ => Err(SysError::last("read")),
+            _ => {
+                let last_error = io::Error::last_os_error();
+                if let Some(libc::EAGAIN) = last_error.raw_os_error() {
+                    return Ok(None);
+                }
+                Err(last_error)
+            }
         }
     }
 
-    pub fn read_match(b: u8) -> Result<(), SysError> {
+    pub fn read_match(b: u8) -> Result<(), io::Error> {
         let mut c: u8 = unsafe { mem::uninitialized() };
         let res =
             unsafe { libc::read(libc::STDIN_FILENO, &mut c as *mut _ as *mut libc::c_void, 1) };
         match res {
             1 if c == b => Ok(()),
-            1 => Err(SysError(
-                libc::EIO,
-                format!("read_match: expected b'{}' but read b'{}'", b, c),
+            1 => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected b'{}' but read b'{}'", b, c),
             )),
-            0 => Err(SysError(
-                libc::EIO,
-                format!("read_match: expected b'{}' but read nothing", b),
+            0 => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected b'{}' but read nothing", b),
             )),
-            _ => Err(SysError::last("read_match")),
+            _ => Err(io::Error::last_os_error()),
         }
     }
 
-    fn read_exact() -> Result<u8, SysError> {
+    fn read_exact() -> Result<u8, io::Error> {
         let mut c = unsafe { mem::uninitialized() };
         let res =
             unsafe { libc::read(libc::STDIN_FILENO, &mut c as *mut _ as *mut libc::c_void, 1) };
         match res {
             1 => Ok(c),
-            0 => Err(SysError(libc::EIO, "read_exact: read nothing".to_string())),
-            _ => Err(SysError::last("read_exact")),
+            0 => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "read nothing".to_string(),
+            )),
+            _ => Err(io::Error::last_os_error()),
         }
     }
 
-    pub fn write(buf: &str) -> Result<(), SysError> {
+    pub fn write(buf: &str) -> Result<(), io::Error> {
         let res = unsafe { libc::write(libc::STDOUT_FILENO, buf.as_ptr() as *const _, buf.len()) };
         match res {
-            -1 => Err(SysError::last("write")),
+            -1 => Err(io::Error::last_os_error()),
             _ => Ok(()),
         }
     }
 
-    fn tcgetattr() -> Result<libc::termios, SysError> {
+    fn tcgetattr() -> Result<libc::termios, io::Error> {
         let mut termios = unsafe { mem::uninitialized() };
         if unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut termios) } == 0 {
             Ok(termios)
         } else {
-            Err(SysError::last("tcgetattr"))
+            Err(io::Error::last_os_error())
         }
     }
 
-    fn tcsetattr(termios: &libc::termios) -> Result<(), SysError> {
+    fn tcsetattr(termios: &libc::termios) -> Result<(), io::Error> {
         if unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, termios) } == 0 {
             Ok(())
         } else {
-            Err(SysError::last("tcsetattr"))
+            Err(io::Error::last_os_error())
         }
     }
 
     #[macro_use]
     mod vt100 {
-        use super::{read_exact, read_match, write, SysError};
+        use super::{read_exact, read_match, write};
+        use std::io;
 
         macro_rules! csi {
             ($cmd:expr) => {
@@ -147,7 +127,7 @@ pub mod unix {
             };
         }
 
-        pub fn get_cursor_position() -> Result<(u16, u16), SysError> {
+        pub fn get_cursor_position() -> Result<(u16, u16), io::Error> {
             write(concat!(
                 cursor_forward!(999),
                 cursor_down!(999),
@@ -179,7 +159,7 @@ pub mod unix {
     }
 
     impl Terminal {
-        pub fn new_raw_mode() -> Result<Terminal, SysError> {
+        pub fn new_raw_mode() -> Result<Terminal, io::Error> {
             let orig = tcgetattr()?;
 
             let mut raw = orig;
@@ -199,7 +179,7 @@ pub mod unix {
             })
         }
 
-        pub fn get_window_size(&self) -> Result<(u16, u16), SysError> {
+        pub fn get_window_size(&self) -> Result<(u16, u16), io::Error> {
             let ws: libc::winsize = unsafe { mem::uninitialized() };
             if unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &ws) } == -1 {
                 write(concat!(cursor_forward!(999), cursor_down!(999)))?;
@@ -213,7 +193,7 @@ pub mod unix {
             self.buf = String::new();
         }
 
-        pub fn end(&self) -> Result<(), SysError> {
+        pub fn end(&self) -> Result<(), io::Error> {
             write(&self.buf)
         }
 

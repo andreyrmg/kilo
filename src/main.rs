@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::io;
 
 mod os;
 
@@ -14,7 +14,7 @@ struct Editor {
 }
 
 impl Editor {
-    fn new() -> Result<Editor, Box<Error>> {
+    fn new() -> Result<Editor, io::Error> {
         let term = os::target::Terminal::new_raw_mode()?;
         let (rows, cols) = term.get_window_size()?;
         Ok(Editor {
@@ -48,7 +48,7 @@ impl Editor {
         }
     }
 
-    fn refresh_screen(&mut self) -> Result<(), Box<Error>> {
+    fn refresh_screen(&mut self) -> Result<(), io::Error> {
         self.term.begin();
 
         self.term.hide_cursor();
@@ -63,7 +63,7 @@ impl Editor {
         Ok(())
     }
 
-    fn run(&mut self) -> Result<(), Box<Error>> {
+    fn run(&mut self) -> Result<(), io::Error> {
         loop {
             self.refresh_screen()?;
             match os::target::read()? {
@@ -80,6 +80,6 @@ impl Editor {
     }
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), io::Error> {
     Editor::new()?.run()
 }
