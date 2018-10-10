@@ -34,11 +34,25 @@ impl Editor {
             _orig_term_attr: os::target::enable_raw_mode()?,
         })
     }
+
+    fn draw_rows(&self) -> Result<(), Box<Error>> {
+        for _ in 0..24 {
+            os::target::write("~\r\n")?;
+        }
+        Ok(())
+    }
+
     fn refresh_screen(&self) -> Result<(), Box<Error>> {
         erase_in_display!(all);
         cursor_position!();
+
+        self.draw_rows()?;
+
+        cursor_position!();
+
         Ok(())
     }
+
     fn run(&mut self) -> Result<(), Box<Error>> {
         loop {
             self.refresh_screen()?;
