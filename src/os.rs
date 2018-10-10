@@ -237,7 +237,11 @@ pub mod unix {
             self.buf.push_str(cursor_position!())
         }
 
-        pub fn push(&mut self, s: &str) {
+        pub fn push(&mut self, ch: char) {
+            self.buf.push(ch);
+        }
+
+        pub fn push_str(&mut self, s: &str) {
             self.buf.push_str(s);
         }
     }

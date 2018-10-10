@@ -2,6 +2,8 @@ use std::error::Error;
 
 mod os;
 
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 const CTRL: u8 = 0x1f;
 const CTRL_Q: u8 = CTRL & b'q';
 
@@ -23,11 +25,25 @@ impl Editor {
     }
 
     fn draw_rows(&mut self) {
-        for i in 0..self.screen_rows {
-            self.term.push("~");
+        for y in 0..self.screen_rows {
+            if y == self.screen_rows / 3 {
+                let welcome = format!("Kilo editor -- version {}", VERSION);
+                let len = welcome.len().min(self.screen_cols as usize);
+                let mut padding = (self.screen_cols as usize - len) / 2;
+                if padding > 0 {
+                    self.term.push('~');
+                    padding -= 1;
+                }
+                for _ in 0..padding {
+                    self.term.push(' ');
+                }
+                self.term.push_str(&welcome[..len]);
+            } else {
+                self.term.push('~');
+            }
             self.term.erase_in_line();
-            if i < self.screen_rows - 1 {
-                self.term.push("\r\n");
+            if y < self.screen_rows - 1 {
+                self.term.push_str("\r\n");
             }
         }
     }
