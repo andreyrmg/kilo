@@ -2,6 +2,7 @@ pub mod unix {
     extern crate libc;
 
     use std::io;
+    use std::io::prelude::*;
     use std::mem;
 
     pub fn read() -> Result<Option<u8>, io::Error> {
@@ -18,46 +19,6 @@ pub mod unix {
                 }
                 Err(last_error)
             }
-        }
-    }
-
-    pub fn read_match(b: u8) -> Result<(), io::Error> {
-        let mut c: u8 = unsafe { mem::uninitialized() };
-        let res =
-            unsafe { libc::read(libc::STDIN_FILENO, &mut c as *mut _ as *mut libc::c_void, 1) };
-        match res {
-            1 if c == b => Ok(()),
-            1 => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("expected b'{}' but read b'{}'", b, c),
-            )),
-            0 => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("expected b'{}' but read nothing", b),
-            )),
-            _ => Err(io::Error::last_os_error()),
-        }
-    }
-
-    fn read_exact() -> Result<u8, io::Error> {
-        let mut c = unsafe { mem::uninitialized() };
-        let res =
-            unsafe { libc::read(libc::STDIN_FILENO, &mut c as *mut _ as *mut libc::c_void, 1) };
-        match res {
-            1 => Ok(c),
-            0 => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "read nothing".to_string(),
-            )),
-            _ => Err(io::Error::last_os_error()),
-        }
-    }
-
-    pub fn write(buf: &str) -> Result<(), io::Error> {
-        let res = unsafe { libc::write(libc::STDOUT_FILENO, buf.as_ptr() as *const _, buf.len()) };
-        match res {
-            -1 => Err(io::Error::last_os_error()),
-            _ => Ok(()),
         }
     }
 
@@ -80,8 +41,9 @@ pub mod unix {
 
     #[macro_use]
     mod vt100 {
-        use super::{read_exact, read_match, write};
         use std::io;
+        use std::io::prelude::*;
+        use std::str;
 
         macro_rules! csi {
             ($cmd:expr) => {
@@ -128,28 +90,43 @@ pub mod unix {
         }
 
         pub fn get_cursor_position() -> Result<(u16, u16), io::Error> {
-            write(concat!(
-                cursor_forward!(999),
-                cursor_down!(999),
-                report_device_status!(active_position)
-            ))?;
-            read_match(b'\x1b')?;
-            read_match(b'[')?;
-            let mut rows = 0u16;
-            loop {
-                match read_exact()? {
-                    b';' => break,
-                    b => rows = rows * 10 + (b - b'0') as u16,
-                }
+            let stdout = io::stdout();
+            let mut handle = stdout.lock();
+            handle.write_all(
+                concat!(
+                    cursor_forward!(999),
+                    cursor_down!(999),
+                    report_device_status!(active_position)
+                ).as_bytes(),
+            )?;
+            handle.flush()?;
+
+            let stdin = io::stdin();
+            let handle = stdin.lock();
+
+            let mut buf = vec![];
+            let read = handle.take(2 + 5 + 1 + 5 + 1).read_until(b'R', &mut buf)?;
+
+            let bad_cpr = || io::Error::new(io::ErrorKind::Other, format!("bad CPR: {:?}", buf));
+            if read < 5 || read > 2 + 5 + 1 + 5 {
+                return Err(bad_cpr());
             }
-            let mut cols = 0u16;
-            loop {
-                match read_exact()? {
-                    b'R' => break,
-                    b => cols = cols * 10 + (b - b'0') as u16,
-                }
+            if buf[0] != b'\x1b' || buf[1] != b'[' {
+                return Err(bad_cpr());
             }
-            Ok((rows, cols))
+            let mid = buf.iter().position(|&b| b == b';').ok_or_else(bad_cpr)?;
+            let rows = unsafe {
+                str::from_utf8_unchecked(&buf[2..mid])
+                    .parse()
+                    .map_err(|_| bad_cpr())?
+            };
+            let cols = unsafe {
+                str::from_utf8_unchecked(&buf[mid + 1..read - 1])
+                    .parse()
+                    .map_err(|_| bad_cpr())?
+            };
+
+            return Ok((rows, cols));
         }
     }
 
@@ -182,7 +159,6 @@ pub mod unix {
         pub fn get_window_size(&self) -> Result<(u16, u16), io::Error> {
             let ws: libc::winsize = unsafe { mem::uninitialized() };
             if unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &ws) } == -1 {
-                write(concat!(cursor_forward!(999), cursor_down!(999)))?;
                 vt100::get_cursor_position()
             } else {
                 Ok((ws.ws_row, ws.ws_col))
@@ -194,7 +170,9 @@ pub mod unix {
         }
 
         pub fn end(&self) -> Result<(), io::Error> {
-            write(&self.buf)
+            let mut stdout = io::stdout();
+            stdout.write_all(self.buf.as_bytes())?;
+            stdout.flush()
         }
 
         pub fn erase_in_display(&mut self) {
