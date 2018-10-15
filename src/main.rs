@@ -66,15 +66,17 @@ impl Editor {
     fn run(&mut self) -> Result<(), io::Error> {
         loop {
             self.refresh_screen()?;
-            match os::target::read()? {
-                Some(CTRL_Q) => {
-                    self.term.begin();
-                    self.term.erase_in_display();
-                    self.term.move_cursor();
-                    self.term.end()?;
-                    return Ok(());
+            if let Some(key) = self.term.read_key() {
+                match key? {
+                    CTRL_Q => {
+                        self.term.begin();
+                        self.term.erase_in_display();
+                        self.term.move_cursor();
+                        self.term.end()?;
+                        return Ok(());
+                    }
+                    _ => (),
                 }
-                _ => (),
             }
         }
     }

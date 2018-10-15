@@ -5,23 +5,6 @@ pub mod unix {
     use std::io::prelude::*;
     use std::mem;
 
-    pub fn read() -> Result<Option<u8>, io::Error> {
-        let mut c = unsafe { mem::uninitialized() };
-        let res =
-            unsafe { libc::read(libc::STDIN_FILENO, &mut c as *mut _ as *mut libc::c_void, 1) };
-        match res {
-            1 => Ok(Some(c)),
-            0 => Ok(None),
-            _ => {
-                let last_error = io::Error::last_os_error();
-                if let Some(libc::EAGAIN) = last_error.raw_os_error() {
-                    return Ok(None);
-                }
-                Err(last_error)
-            }
-        }
-    }
-
     fn tcgetattr() -> Result<libc::termios, io::Error> {
         let mut termios = unsafe { mem::uninitialized() };
         if unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut termios) } == 0 {
@@ -89,23 +72,21 @@ pub mod unix {
             };
         }
 
-        pub fn get_cursor_position() -> Result<(u16, u16), io::Error> {
-            let stdout = io::stdout();
-            let mut handle = stdout.lock();
-            handle.write_all(
+        pub fn get_cursor_position(
+            stdin: io::StdinLock,
+            mut stdout: io::StdoutLock,
+        ) -> Result<(u16, u16), io::Error> {
+            stdout.write_all(
                 concat!(
                     cursor_forward!(999),
                     cursor_down!(999),
                     report_device_status!(active_position)
                 ).as_bytes(),
             )?;
-            handle.flush()?;
-
-            let stdin = io::stdin();
-            let handle = stdin.lock();
+            stdout.flush()?;
 
             let mut buf = vec![];
-            let read = handle.take(2 + 5 + 1 + 5 + 1).read_until(b'R', &mut buf)?;
+            let read = stdin.take(2 + 5 + 1 + 5 + 1).read_until(b'R', &mut buf)?;
 
             let bad_cpr = || io::Error::new(io::ErrorKind::Other, format!("bad CPR: {:?}", buf));
             if read < 5 || read > 2 + 5 + 1 + 5 {
@@ -132,6 +113,8 @@ pub mod unix {
 
     pub struct Terminal {
         orig: libc::termios,
+        stdin: io::Stdin,
+        stdout: io::Stdout,
         buf: String,
     }
 
@@ -152,6 +135,8 @@ pub mod unix {
 
             Ok(Terminal {
                 orig: orig,
+                stdin: io::stdin(),
+                stdout: io::stdout(),
                 buf: String::new(),
             })
         }
@@ -159,10 +144,22 @@ pub mod unix {
         pub fn get_window_size(&self) -> Result<(u16, u16), io::Error> {
             let ws: libc::winsize = unsafe { mem::uninitialized() };
             if unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &ws) } == -1 {
-                vt100::get_cursor_position()
+                vt100::get_cursor_position(self.stdin.lock(), self.stdout.lock())
             } else {
                 Ok((ws.ws_row, ws.ws_col))
             }
+        }
+
+        pub fn read_key(&self) -> Option<Result<u8, io::Error>> {
+            let stdin = self.stdin.lock();
+            let mut bytes = stdin.bytes().skip_while(|x| {
+                x.as_ref()
+                    .err()
+                    .and_then(io::Error::raw_os_error)
+                    .map(|raw_os_error| raw_os_error == libc::EAGAIN)
+                    .unwrap_or(false)
+            });
+            bytes.next()
         }
 
         pub fn begin(&mut self) {
