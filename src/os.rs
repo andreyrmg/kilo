@@ -32,6 +32,9 @@ pub mod unix {
             ($cmd:expr) => {
                 concat!("\x1b[", $cmd)
             };
+            ($fmt:expr, $($args:tt)*) => {
+                format!(concat!("\x1b[", $fmt), $($args)*)
+            };
         }
         macro_rules! cursor_forward {
             ($n:expr) => {
@@ -46,6 +49,9 @@ pub mod unix {
         macro_rules! cursor_position {
             () => {
                 csi!("H")
+            };
+            ($row:expr, $col:expr) => {
+                csi!("{};{}H", $row, $col)
             };
         }
         macro_rules! erase_in_display {
@@ -190,6 +196,10 @@ pub mod unix {
 
         pub fn move_cursor(&mut self) {
             self.buf.push_str(cursor_position!())
+        }
+
+        pub fn move_cursor_at(&mut self, row: u32, col: u32) {
+            self.buf.push_str(&cursor_position!(row, col))
         }
 
         pub fn push(&mut self, ch: char) {
