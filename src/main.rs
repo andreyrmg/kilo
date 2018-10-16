@@ -17,6 +17,7 @@ pub enum Key {
     PageDown,
     Home,
     End,
+    Delete,
 }
 
 struct Editor {
@@ -323,6 +324,7 @@ mod platform {
                                                 if next? == b'~' {
                                                     match b {
                                                         b'1' | b'7' => return Ok(Key::Home),
+                                                        b'3' => return Ok(Key::Delete),
                                                         b'4' | b'8' => return Ok(Key::End),
                                                         b'5' => return Ok(Key::PageUp),
                                                         b'6' => return Ok(Key::PageDown),
