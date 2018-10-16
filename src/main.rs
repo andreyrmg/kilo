@@ -286,18 +286,24 @@ mod platform {
                         .unwrap_or(true)
                 });
                 loop {
-                    if let Some(b) = bytes.next() {
-                        let c = b?;
-                        if c != b'\x1b' {
-                            return Ok(Key::Char(c));
+                    if let Some(next) = bytes.next() {
+                        let b = next?;
+                        if b != b'\x1b' {
+                            return Ok(Key::Char(b));
                         }
-                        if let Some(Ok(b'[')) = bytes.next() {
-                            match bytes.next() {
-                                Some(Ok(b'A')) => return Ok(Key::Up),
-                                Some(Ok(b'B')) => return Ok(Key::Down),
-                                Some(Ok(b'C')) => return Ok(Key::Right),
-                                Some(Ok(b'D')) => return Ok(Key::Left),
-                                _ => (),
+                        if let Some(next) = bytes.next() {
+                            let b = next?;
+                            if b != b'[' {
+                                return Ok(Key::Escape);
+                            }
+                            if let Some(next) = bytes.next() {
+                                match next? {
+                                    b'A' => return Ok(Key::Up),
+                                    b'B' => return Ok(Key::Down),
+                                    b'C' => return Ok(Key::Right),
+                                    b'D' => return Ok(Key::Left),
+                                    _ => (),
+                                }
                             }
                         }
                         return Ok(Key::Escape);
