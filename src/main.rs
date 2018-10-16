@@ -15,6 +15,8 @@ pub enum Key {
     Down,
     PageUp,
     PageDown,
+    Home,
+    End,
 }
 
 struct Editor {
@@ -112,6 +114,8 @@ impl Editor {
                         });
                     }
                 }
+                Key::Home => self.cursor_col = 0,
+                Key::End => self.cursor_col = self.screen_cols - 1,
                 Key::Char(CTRL_Q) => {
                     self.term.begin();
                     self.term.erase_in_display();
@@ -305,27 +309,41 @@ mod platform {
                             return Ok(Key::Char(b));
                         }
                         if let Some(next) = bytes.next() {
-                            let b = next?;
-                            if b != b'[' {
-                                return Ok(Key::Escape);
-                            }
-                            if let Some(next) = bytes.next() {
-                                match next? {
-                                    b'A' => return Ok(Key::Up),
-                                    b'B' => return Ok(Key::Down),
-                                    b'C' => return Ok(Key::Right),
-                                    b'D' => return Ok(Key::Left),
-                                    b @ b'0'...b'9' => if let Some(next) = bytes.next() {
-                                        if next? == b'~' {
-                                            match b {
-                                                b'5' => return Ok(Key::PageUp),
-                                                b'6' => return Ok(Key::PageDown),
-                                                _ => (),
-                                            }
+                            match next? {
+                                b'[' => {
+                                    if let Some(next) = bytes.next() {
+                                        match next? {
+                                            b'A' => return Ok(Key::Up),
+                                            b'B' => return Ok(Key::Down),
+                                            b'C' => return Ok(Key::Right),
+                                            b'D' => return Ok(Key::Left),
+                                            b'H' => return Ok(Key::Home),
+                                            b'F' => return Ok(Key::End),
+                                            b @ b'0'...b'9' => if let Some(next) = bytes.next() {
+                                                if next? == b'~' {
+                                                    match b {
+                                                        b'1' | b'7' => return Ok(Key::Home),
+                                                        b'4' | b'8' => return Ok(Key::End),
+                                                        b'5' => return Ok(Key::PageUp),
+                                                        b'6' => return Ok(Key::PageDown),
+                                                        _ => (),
+                                                    }
+                                                }
+                                            },
+                                            _ => (),
                                         }
-                                    },
-                                    _ => (),
+                                    }
                                 }
+                                b'O' => {
+                                    if let Some(next) = bytes.next() {
+                                        match next? {
+                                            b'H' => return Ok(Key::Home),
+                                            b'F' => return Ok(Key::End),
+                                            _ => (),
+                                        }
+                                    }
+                                }
+                                _ => (),
                             }
                         }
                         return Ok(Key::Escape);
