@@ -5,6 +5,15 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const CTRL: u8 = 0x1f;
 const CTRL_Q: u8 = CTRL & b'q';
 
+pub enum Key {
+    Char(u8),
+    Escape,
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 struct Editor {
     term: target::Terminal,
     screen_rows: u16,
@@ -26,12 +35,12 @@ impl Editor {
         })
     }
 
-    fn move_cursor(&mut self, key: u8) {
+    fn move_cursor(&mut self, key: Key) {
         match key {
-            b'h' => self.cursor_col -= 1,
-            b'j' => self.cursor_row += 1,
-            b'k' => self.cursor_row -= 1,
-            b'l' => self.cursor_col += 1,
+            Key::Left => self.cursor_col -= 1,
+            Key::Right => self.cursor_col += 1,
+            Key::Up => self.cursor_row -= 1,
+            Key::Down => self.cursor_row += 1,
             _ => (),
         }
     }
@@ -79,28 +88,29 @@ impl Editor {
     fn run(&mut self) -> Result<(), io::Error> {
         loop {
             self.refresh_screen()?;
-            if let Some(key) = self.term.read_key() {
-                match key? {
-                    k @ b'h' | k @ b'j' | k @ b'k' | k @ b'l' => self.move_cursor(k),
-                    CTRL_Q => {
-                        self.term.begin();
-                        self.term.erase_in_display();
-                        self.term.move_cursor();
-                        self.term.end()?;
-                        return Ok(());
-                    }
-                    _ => (),
+            let key = self.term.read_key()?;
+            match key {
+                Key::Up | Key::Down | Key::Right | Key::Left => self.move_cursor(key),
+                Key::Char(CTRL_Q) => {
+                    self.term.begin();
+                    self.term.erase_in_display();
+                    self.term.move_cursor();
+                    self.term.end()?;
+                    return Ok(());
                 }
+                _ => (),
             }
         }
     }
 }
 
 mod platform {
+
     #[cfg(unix)]
     pub mod unix {
         extern crate libc;
 
+        use super::super::Key;
         use std::io;
         use std::io::prelude::*;
         use std::mem;
@@ -258,16 +268,33 @@ mod platform {
                 }
             }
 
-            pub fn read_key(&self) -> Option<Result<u8, io::Error>> {
+            pub fn read_key(&self) -> Result<Key, io::Error> {
                 let stdin = self.stdin.lock();
-                let mut bytes = stdin.bytes().skip_while(|x| {
+                let mut bytes = stdin.bytes().filter(|x| {
                     x.as_ref()
                         .err()
                         .and_then(io::Error::raw_os_error)
-                        .map(|raw_os_error| raw_os_error == libc::EAGAIN)
-                        .unwrap_or(false)
+                        .map(|raw_os_error| raw_os_error != libc::EAGAIN)
+                        .unwrap_or(true)
                 });
-                bytes.next()
+                loop {
+                    if let Some(b) = bytes.next() {
+                        let c = b?;
+                        if c != b'\x1b' {
+                            return Ok(Key::Char(c));
+                        }
+                        if let Some(Ok(b'[')) = bytes.next() {
+                            match bytes.next() {
+                                Some(Ok(b'A')) => return Ok(Key::Up),
+                                Some(Ok(b'B')) => return Ok(Key::Down),
+                                Some(Ok(b'C')) => return Ok(Key::Right),
+                                Some(Ok(b'D')) => return Ok(Key::Left),
+                                _ => (),
+                            }
+                        }
+                        return Ok(Key::Escape);
+                    }
+                }
             }
 
             pub fn begin(&mut self) {
@@ -323,7 +350,7 @@ mod platform {
 }
 
 #[cfg(unix)]
-pub use platform::unix as target;
+use platform::unix as target;
 
 fn main() -> Result<(), io::Error> {
     Editor::new()?.run()
