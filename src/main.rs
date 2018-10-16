@@ -16,10 +16,10 @@ pub enum Key {
 
 struct Editor {
     term: target::Terminal,
-    screen_rows: u16,
-    screen_cols: u16,
-    cursor_row: u32,
-    cursor_col: u32,
+    screen_rows: usize,
+    screen_cols: usize,
+    cursor_row: usize,
+    cursor_col: usize,
 }
 
 impl Editor {
@@ -28,8 +28,8 @@ impl Editor {
         let (rows, cols) = term.get_window_size()?;
         Ok(Editor {
             term: term,
-            screen_rows: rows,
-            screen_cols: cols,
+            screen_rows: rows as usize,
+            screen_cols: cols as usize,
             cursor_row: 0,
             cursor_col: 0,
         })
@@ -37,10 +37,18 @@ impl Editor {
 
     fn move_cursor(&mut self, key: Key) {
         match key {
-            Key::Left => self.cursor_col -= 1,
-            Key::Right => self.cursor_col += 1,
-            Key::Up => self.cursor_row -= 1,
-            Key::Down => self.cursor_row += 1,
+            Key::Left => if self.cursor_col != 0 {
+                self.cursor_col -= 1
+            },
+            Key::Right => if self.cursor_col != self.screen_cols - 1 {
+                self.cursor_col += 1
+            },
+            Key::Up => if self.cursor_row != 0 {
+                self.cursor_row -= 1
+            },
+            Key::Down => if self.cursor_row != self.screen_rows - 1 {
+                self.cursor_row += 1
+            },
             _ => (),
         }
     }
@@ -49,8 +57,8 @@ impl Editor {
         for y in 0..self.screen_rows {
             if y == self.screen_rows / 3 {
                 let welcome = format!("Kilo editor -- version {}", VERSION);
-                let len = welcome.len().min(self.screen_cols as usize);
-                let mut padding = (self.screen_cols as usize - len) / 2;
+                let len = welcome.len().min(self.screen_cols);
+                let mut padding = (self.screen_cols - len) / 2;
                 if padding > 0 {
                     self.term.push('~');
                     padding -= 1;
@@ -327,7 +335,7 @@ mod platform {
                 self.buf.push_str(cursor_position!())
             }
 
-            pub fn move_cursor_at(&mut self, row: u32, col: u32) {
+            pub fn move_cursor_at(&mut self, row: usize, col: usize) {
                 self.buf.push_str(&cursor_position!(row, col))
             }
 
