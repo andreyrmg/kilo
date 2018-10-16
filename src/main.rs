@@ -5,6 +5,7 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const CTRL: u8 = 0x1f;
 const CTRL_Q: u8 = CTRL & b'q';
 
+#[derive(PartialEq)]
 pub enum Key {
     Char(u8),
     Escape,
@@ -12,6 +13,8 @@ pub enum Key {
     Right,
     Up,
     Down,
+    PageUp,
+    PageDown,
 }
 
 struct Editor {
@@ -99,6 +102,16 @@ impl Editor {
             let key = self.term.read_key()?;
             match key {
                 Key::Up | Key::Down | Key::Right | Key::Left => self.move_cursor(key),
+                Key::PageUp | Key::PageDown => {
+                    let times = self.screen_rows;
+                    for _ in 0..times {
+                        self.move_cursor(if key == Key::PageUp {
+                            Key::Up
+                        } else {
+                            Key::Down
+                        });
+                    }
+                }
                 Key::Char(CTRL_Q) => {
                     self.term.begin();
                     self.term.erase_in_display();
@@ -302,6 +315,15 @@ mod platform {
                                     b'B' => return Ok(Key::Down),
                                     b'C' => return Ok(Key::Right),
                                     b'D' => return Ok(Key::Left),
+                                    b @ b'0'...b'9' => if let Some(next) = bytes.next() {
+                                        if next? == b'~' {
+                                            match b {
+                                                b'5' => return Ok(Key::PageUp),
+                                                b'6' => return Ok(Key::PageDown),
+                                                _ => (),
+                                            }
+                                        }
+                                    },
                                     _ => (),
                                 }
                             }
