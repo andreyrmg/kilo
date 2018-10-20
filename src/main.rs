@@ -1,4 +1,9 @@
+use std::cmp;
+use std::env;
+use std::fs;
 use std::io;
+use std::io::prelude::*;
+use std::path;
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
@@ -20,12 +25,18 @@ pub enum Key {
     Delete,
 }
 
+struct EditorRow {
+    chars: String,
+}
+
 struct Editor {
     term: target::Terminal,
     screen_rows: usize,
     screen_cols: usize,
     cursor_row: usize,
     cursor_col: usize,
+    number_rows: usize,
+    row: EditorRow,
 }
 
 impl Editor {
@@ -38,7 +49,22 @@ impl Editor {
             screen_cols: cols as usize,
             cursor_row: 0,
             cursor_col: 0,
+            number_rows: 0,
+            row: EditorRow {
+                chars: String::new(),
+            },
         })
+    }
+
+    fn open<P>(&mut self, path: P) -> Result<(), io::Error>
+    where
+        P: AsRef<path::Path>,
+    {
+        let file = fs::File::open(path)?;
+        let reader = io::BufReader::new(file);
+        self.row.chars = reader.lines().next().unwrap_or_else(|| Ok(String::new()))?;
+        self.number_rows = 1;
+        Ok(())
     }
 
     fn move_cursor(&mut self, key: Key) {
@@ -61,20 +87,25 @@ impl Editor {
 
     fn draw_rows(&mut self) {
         for y in 0..self.screen_rows {
-            if y == self.screen_rows / 3 {
-                let welcome = format!("Kilo editor -- version {}", VERSION);
-                let len = welcome.len().min(self.screen_cols);
-                let mut padding = (self.screen_cols - len) / 2;
-                if padding > 0 {
+            if y >= self.number_rows {
+                if self.number_rows == 0 && y == self.screen_rows / 3 {
+                    let welcome = format!("Kilo editor -- version {}", VERSION);
+                    let len = welcome.len().min(self.screen_cols);
+                    let mut padding = (self.screen_cols - len) / 2;
+                    if padding > 0 {
+                        self.term.push('~');
+                        padding -= 1;
+                    }
+                    for _ in 0..padding {
+                        self.term.push(' ');
+                    }
+                    self.term.push_str(&welcome[..len]);
+                } else {
                     self.term.push('~');
-                    padding -= 1;
                 }
-                for _ in 0..padding {
-                    self.term.push(' ');
-                }
-                self.term.push_str(&welcome[..len]);
             } else {
-                self.term.push('~');
+                let len = cmp::min(self.row.chars.len(), self.screen_cols);
+                self.term.push_str(&self.row.chars[..len])
             }
             self.term.erase_in_line();
             if y < self.screen_rows - 1 {
@@ -409,5 +440,12 @@ mod platform {
 use platform::unix as target;
 
 fn main() -> Result<(), io::Error> {
-    Editor::new()?.run()
+    let mut editor = Editor::new()?;
+
+    let mut args = env::args();
+    if let Some(path) = args.nth(1) {
+        editor.open(path)?;
+    }
+
+    editor.run()
 }
