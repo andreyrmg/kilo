@@ -25,18 +25,13 @@ pub enum Key {
     Delete,
 }
 
-struct EditorRow {
-    chars: String,
-}
-
 struct Editor {
     term: target::Terminal,
     screen_rows: usize,
     screen_cols: usize,
     cursor_row: usize,
     cursor_col: usize,
-    number_rows: usize,
-    row: EditorRow,
+    rows: Vec<String>,
 }
 
 impl Editor {
@@ -49,10 +44,7 @@ impl Editor {
             screen_cols: cols as usize,
             cursor_row: 0,
             cursor_col: 0,
-            number_rows: 0,
-            row: EditorRow {
-                chars: String::new(),
-            },
+            rows: vec![],
         })
     }
 
@@ -62,8 +54,7 @@ impl Editor {
     {
         let file = fs::File::open(path)?;
         let reader = io::BufReader::new(file);
-        self.row.chars = reader.lines().next().unwrap_or_else(|| Ok(String::new()))?;
-        self.number_rows = 1;
+        self.rows = reader.lines().collect::<Result<Vec<_>, _>>()?;
         Ok(())
     }
 
@@ -87,8 +78,8 @@ impl Editor {
 
     fn draw_rows(&mut self) {
         for y in 0..self.screen_rows {
-            if y >= self.number_rows {
-                if self.number_rows == 0 && y == self.screen_rows / 3 {
+            if y >= self.rows.len() {
+                if self.rows.is_empty() && y == self.screen_rows / 3 {
                     let welcome = format!("Kilo editor -- version {}", VERSION);
                     let len = welcome.len().min(self.screen_cols);
                     let mut padding = (self.screen_cols - len) / 2;
@@ -104,8 +95,8 @@ impl Editor {
                     self.term.push('~');
                 }
             } else {
-                let len = cmp::min(self.row.chars.len(), self.screen_cols);
-                self.term.push_str(&self.row.chars[..len])
+                let len = cmp::min(self.rows[y].len(), self.screen_cols);
+                self.term.push_str(&self.rows[y][..len])
             }
             self.term.erase_in_line();
             if y < self.screen_rows - 1 {
